@@ -153,7 +153,7 @@ async function fetchEFFR() {
   return { rate: latest.percentRate, date: latest.effectiveDate };
 }
 
-// Fetch quote from Yahoo Finance via public CORS proxies with fallback price fields
+// Race Yahoo Finance chart requests across hosts and CORS proxies for faster responses
 async function fetchYahooQuote(symbol) {
   const encoded = encodeURIComponent(symbol);
   const targets = [
@@ -166,12 +166,14 @@ async function fetchYahooQuote(symbol) {
     (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
   ];
 
-  let lastErr;
+  const attempts = [];
   for (const target of targets) {
     for (const buildProxyUrl of proxyBuilders) {
-      try {
-        const res = await fetch(buildProxyUrl(target), { signal: AbortSignal.timeout(8000) });
-        if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+      attempts.push((async () => {
+        const res = await fetch(buildProxyUrl(target), {
+          signal: AbortSignal.timeout(4500)
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const json = await res.json();
         const result = json?.chart?.result?.[0];
@@ -195,12 +197,11 @@ async function fetchYahooQuote(symbol) {
           return price;
         }
         throw new Error(`No numeric price found for ${symbol}`);
-      } catch (err) {
-        lastErr = err;
-      }
+      })());
     }
   }
-  throw lastErr || new Error(`Failed to fetch ${symbol}`);
+
+  return Promise.any(attempts);
 }
 
 // Convert short CME code like "ZQZ6" -> "ZQZ26.CBT" if user enters short code
