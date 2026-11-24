@@ -155,7 +155,11 @@ async function fetchEFFR() {
 
 // Fetch quote from Yahoo Finance via public CORS proxies with fallback price fields
 async function fetchYahooQuote(symbol) {
-  const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+  const encoded = encodeURIComponent(symbol);
+  const targets = [
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=1mo`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=1mo`
+  ];
   const proxyBuilders = [
     (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
     (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
@@ -163,33 +167,37 @@ async function fetchYahooQuote(symbol) {
   ];
 
   let lastErr;
-  for (const buildProxyUrl of proxyBuilders) {
-    try {
-      const res = await fetch(buildProxyUrl(target), { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+  for (const target of targets) {
+    for (const buildProxyUrl of proxyBuilders) {
+      try {
+        const res = await fetch(buildProxyUrl(target), { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
 
-      const json = await res.json();
-      const result = json?.chart?.result?.[0];
-      const meta = result?.meta;
-      const closes = result?.indicators?.quote?.[0]?.close || [];
-      const lastClose = [...closes]
-        .reverse()
-        .find((v) => typeof v === "number" && Number.isFinite(v));
+        const json = await res.json();
+        const result = json?.chart?.result?.[0];
+        if (!result) throw new Error(`Empty chart result for ${symbol}`);
 
-      const price =
-        (typeof meta?.regularMarketPrice === "number" && Number.isFinite(meta.regularMarketPrice)
-          ? meta.regularMarketPrice
-          : null) ??
-        lastClose ??
-        meta?.chartPreviousClose ??
-        meta?.previousClose;
+        const meta = result.meta || {};
+        const closes = result.indicators?.quote?.[0]?.close || [];
+        const lastClose = [...closes]
+          .reverse()
+          .find((v) => typeof v === "number" && Number.isFinite(v));
 
-      if (typeof price === "number" && Number.isFinite(price)) {
-        return price;
+        const price =
+          (typeof meta.regularMarketPrice === "number" && Number.isFinite(meta.regularMarketPrice)
+            ? meta.regularMarketPrice
+            : null) ??
+          lastClose ??
+          meta.chartPreviousClose ??
+          meta.previousClose;
+
+        if (typeof price === "number" && Number.isFinite(price)) {
+          return price;
+        }
+        throw new Error(`No numeric price found for ${symbol}`);
+      } catch (err) {
+        lastErr = err;
       }
-      throw new Error(`No numeric price found for ${symbol}`);
-    } catch (err) {
-      lastErr = err;
     }
   }
   throw lastErr || new Error(`Failed to fetch ${symbol}`);
