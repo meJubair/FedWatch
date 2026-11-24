@@ -3,29 +3,144 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FedWatch API Data & Calculator</title>
+  <title>FedWatch & US10Y Yield Bias Dashboard</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="container">
-    <h1>FedWatch API Data &amp; Calculator</h1>
+    <header class="topbar">
+      <div>
+        <h1>FedWatch &amp; US10Y Macro Dashboard</h1>
+        <p id="status" class="status" role="status" aria-live="polite">Initializing...</p>
+      </div>
+      <div class="actions">
+        <button id="refresh-btn" type="button">Fetch Live Data</button>
+      </div>
+    </header>
 
-    <section class="controls" aria-label="Calculation inputs">
-      <label for="multiplier-input">Multiplier / Weight</label>
-      <input id="multiplier-input" type="number" step="any" value="1" />
+    <!-- MODEL 1: CME FEDWATCH / FED FUNDS FUTURES -->
+    <section class="card" aria-labelledby="fedwatch-heading">
+      <div class="card-header">
+        <h2 id="fedwatch-heading">FedWatch Probability Model</h2>
+        <span id="effr-date" class="meta">EFFR date: --</span>
+      </div>
 
-      <button id="run-btn" type="button">Fetch &amp; Calculate</button>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>FedWatch</th>
+              <th>EFFR Now (%)</th>
+              <th>ZQ Price</th>
+              <th>Meeting Date</th>
+              <th>Meeting Day (Day Of Month)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <input id="zq-symbol" type="text" value="ZQZ6" aria-label="Fed Funds Futures Contract" />
+              </td>
+              <td>
+                <input id="effr-now" type="number" step="0.001" value="3.88" aria-label="EFFR Now" />
+              </td>
+              <td>
+                <input id="zq-price" type="number" step="0.001" value="95.955" aria-label="ZQ Price" />
+              </td>
+              <td>
+                <input id="meeting-date" type="date" value="2026-12-09" aria-label="Meeting Date" />
+              </td>
+              <td id="meeting-day" class="computed">9</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="subhead">PROBABILITIES</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th id="contract-label">DEC/2026</th>
+              <th>Cut</th>
+              <th>Hold</th>
+              <th>25bps Hike</th>
+              <th>50bps Hike</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="row-label">Detailed</td>
+              <td id="prob-cut" class="num">0.000</td>
+              <td id="prob-hold" class="num">0.070</td>
+              <td id="prob-hike25" class="num">0.930</td>
+              <td id="prob-hike50" class="num">0.000</td>
+            </tr>
+            <tr class="summary-row">
+              <td class="row-label">Summary</td>
+              <td id="sum-cut" class="num">0.000</td>
+              <td id="sum-hold" class="num">0.070</td>
+              <td id="sum-hike" class="num" colspan="2">0.930 <span class="muted">(Hike)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p id="fedwatch-notes" class="formula-note"></p>
     </section>
 
-    <p id="status" role="status" aria-live="polite">Ready.</p>
+    <!-- MODEL 2: US10Y BOND SPOT VS FUTURES -->
+    <section class="card" aria-labelledby="us10y-heading">
+      <div class="card-header">
+        <h2 id="us10y-heading">US10Y Bond Spot vs. Futures</h2>
+        <span class="meta">Tickers: <code>^TNX</code> &amp; <code>10Y=F</code></span>
+      </div>
 
-    <section class="results" aria-label="Calculation results">
-      <h2>Results</h2>
-      <div id="summary"></div>
-      <ul id="breakdown"></ul>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>US10Y BOND</th>
+              <th>US10Y SPOT (%)</th>
+              <th>US10Y FUTURES (%)</th>
+              <th>Hold threshold (%)</th>
+              <th>Implied Yield Change (% points)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="row-label">LAST</td>
+              <td>
+                <input id="us10y-spot" type="number" step="0.001" value="4.92" aria-label="US10Y Spot" />
+              </td>
+              <td>
+                <input id="us10y-futures" type="number" step="0.001" value="4.949" aria-label="US10Y Futures" />
+              </td>
+              <td>
+                <input id="hold-threshold" type="number" step="0.001" value="0.02" aria-label="Hold threshold percent" />
+              </td>
+              <td id="yield-change" class="computed">0.029</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="signal-grid">
+        <div class="signal-box">
+          <div class="signal-title">Direction Classifier (UP / HOLD / DOWN)</div>
+          <div id="direction-output" class="signal-value up">UP</div>
+        </div>
+        <div class="signal-box">
+          <div class="signal-title">Spread / Shift in Basis Points (bps)</div>
+          <div id="bps-output" class="signal-value">2.9</div>
+        </div>
+        <div class="signal-box wide">
+          <div class="signal-title">Short-Term USD Bias</div>
+          <div id="bias-output" class="signal-value up">USD UP / HAWKISH (Crypto &amp; Gold BEAR)</div>
+        </div>
+      </div>
     </section>
   </main>
 
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
