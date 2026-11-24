@@ -1,4 +1,5 @@
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const CME_MONTH_CODES = ["F", "G", "H", "J", "K", "M", "N", "Q", "U", "V", "X", "Z"];
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const WORKER_PROXY_BASE = "https://fedwatch.me-jubair.workers.dev";
 
@@ -41,6 +42,21 @@ function parseISODateUTC(isoStr) {
   const parts = isoStr.split("-").map(Number);
   if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
   return { year: parts[0], monthIndex: parts[1] - 1, day: parts[2] };
+}
+
+function getZQShortCodeFromDate(isoStr) {
+  const dateParts = parseISODateUTC(isoStr);
+  if (!dateParts) return null;
+  const monthCode = CME_MONTH_CODES[dateParts.monthIndex];
+  const singleDigitYear = dateParts.year % 10;
+  return `ZQ${monthCode}${singleDigitYear}`;
+}
+
+function syncZQSymbolFromMeetingDate() {
+  const code = getZQShortCodeFromDate(meetingDateInput.value);
+  if (code) {
+    zqSymbolInput.value = code;
+  }
 }
 
 function calculateFedWatch() {
@@ -277,8 +293,14 @@ async function syncAllFeeds() {
   refreshBtn.disabled = false;
 }
 
+// Generate ZQ contract code from meeting date when changed
+meetingDateInput.addEventListener("input", () => {
+  syncZQSymbolFromMeetingDate();
+  calculateFedWatch();
+});
+
 // Recalculate instantly whenever any input is edited manually
-[zqSymbolInput, effrNowInput, zqPriceInput, meetingDateInput].forEach((el) => {
+[zqSymbolInput, effrNowInput, zqPriceInput].forEach((el) => {
   el.addEventListener("input", calculateFedWatch);
 });
 
@@ -288,7 +310,10 @@ async function syncAllFeeds() {
 
 refreshBtn.addEventListener("click", syncAllFeeds);
 
-// Run initial calculation on default values immediately, then sync now and every hour
+// Initialize ZQ code from meeting date if empty, calculate immediately, then sync now & hourly
+if (!zqSymbolInput.value.trim()) {
+  syncZQSymbolFromMeetingDate();
+}
 calculateFedWatch();
 calculateUS10Y();
 syncAllFeeds();
