@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FedWatch API Data & Calculator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>FedWatch API Data &amp; Calculator</h1>
+
+    <section class="controls" aria-label="Calculation inputs">
+      <label for="multiplier-input">Multiplier / Weight</label>
+      <input id="multiplier-input" type="number" step="any" value="1" />
+
+      <button id="run-btn" type="button">Fetch &amp; Calculate</button>
+    </section>
+
+    <p id="status" role="status" aria-live="polite">Ready.</p>
+
+    <section class="results" aria-label="Calculation results">
+      <h2>Results</h2>
+      <div id="summary"></div>
+      <ul id="breakdown"></ul>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
