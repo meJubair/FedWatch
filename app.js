@@ -143,7 +143,7 @@ function calculateUS10Y() {
 // Fetch EFFR from official NY Fed Markets Data API (CORS-enabled JSON)
 async function fetchEFFR() {
   const url = "https://markets.newyorkfed.org/api/rates/unsecured/effr/last/1.json";
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`NY Fed HTTP ${res.status}`);
   const data = await res.json();
   const latest = data?.refRates?.[0];
@@ -153,26 +153,41 @@ async function fetchEFFR() {
   return { rate: latest.percentRate, date: latest.effectiveDate };
 }
 
-// Fetch quote from Yahoo Finance via public CORS proxies
+// Fetch quote from Yahoo Finance via public CORS proxies with fallback price fields
 async function fetchYahooQuote(symbol) {
   const target = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
-  const proxies = [
-    `https://corsproxy.io/?${encodeURIComponent(target)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`
+  const proxyBuilders = [
+    (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
   ];
 
   let lastErr;
-  for (const proxyUrl of proxies) {
+  for (const buildProxyUrl of proxyBuilders) {
     try {
-      const res = await fetch(proxyUrl);
+      const res = await fetch(buildProxyUrl(target), { signal: AbortSignal.timeout(8000) });
       if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+
       const json = await res.json();
-      const meta = json?.chart?.result?.[0]?.meta;
-      const price = meta?.regularMarketPrice ?? meta?.previousClose;
+      const result = json?.chart?.result?.[0];
+      const meta = result?.meta;
+      const closes = result?.indicators?.quote?.[0]?.close || [];
+      const lastClose = [...closes]
+        .reverse()
+        .find((v) => typeof v === "number" && Number.isFinite(v));
+
+      const price =
+        (typeof meta?.regularMarketPrice === "number" && Number.isFinite(meta.regularMarketPrice)
+          ? meta.regularMarketPrice
+          : null) ??
+        lastClose ??
+        meta?.chartPreviousClose ??
+        meta?.previousClose;
+
       if (typeof price === "number" && Number.isFinite(price)) {
         return price;
       }
-      throw new Error(`No price found for ${symbol}`);
+      throw new Error(`No numeric price found for ${symbol}`);
     } catch (err) {
       lastErr = err;
     }
@@ -180,7 +195,7 @@ async function fetchYahooQuote(symbol) {
   throw lastErr || new Error(`Failed to fetch ${symbol}`);
 }
 
-// Convert Yahoo contract code like "ZQZ6" -> "ZQZ26.CBT" if user enters short CME code
+// Convert short CME code like "ZQZ6" -> "ZQZ26.CBT" if user enters short code
 function normalizeZQSymbol(raw) {
   const clean = raw.trim().toUpperCase();
   if (clean.includes(".")) return clean;
