@@ -1,4 +1,6 @@
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const ONE_HOUR_MS = 60 * 60 * 1000;
+const WORKER_PROXY_BASE = "https://fedwatch.me-jubair.workers.dev";
 
 // DOM Elements
 const statusEl = document.getElementById("status");
@@ -153,55 +155,62 @@ async function fetchEFFR() {
   return { rate: latest.percentRate, date: latest.effectiveDate };
 }
 
-// Race Yahoo Finance chart requests across hosts and CORS proxies for faster responses
+function extractYahooPrice(json, symbol) {
+  const result = json?.chart?.result?.[0];
+  if (!result) throw new Error(`Empty chart result for ${symbol}`);
+
+  const meta = result.meta || {};
+  const closes = result.indicators?.quote?.[0]?.close || [];
+  const lastClose = [...closes]
+    .reverse()
+    .find((v) => typeof v === "number" && Number.isFinite(v));
+
+  const price =
+    (typeof meta.regularMarketPrice === "number" && Number.isFinite(meta.regularMarketPrice)
+      ? meta.regularMarketPrice
+      : null) ??
+    lastClose ??
+    meta.chartPreviousClose ??
+    meta.previousClose;
+
+  if (typeof price === "number" && Number.isFinite(price)) {
+    return price;
+  }
+  throw new Error(`No numeric price found for ${symbol}`);
+}
+
+// Priority: Cloudflare Worker -> Corsfix -> Fallback Relays -> Manual Input
 async function fetchYahooQuote(symbol) {
-  const encoded = encodeURIComponent(symbol);
+  const encodedSymbol = encodeURIComponent(symbol);
   const targets = [
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=1mo`,
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=1mo`
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=1mo`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=1mo`
   ];
-  const proxyBuilders = [
+
+  const relayBuilders = [
+    (url) => `${WORKER_PROXY_BASE}/?url=${encodeURIComponent(url)}`,
+    (url) => `https://proxy.corsfix.com/?${encodeURIComponent(url)}`,
     (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+    (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+    (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
   ];
 
-  const attempts = [];
-  for (const target of targets) {
-    for (const buildProxyUrl of proxyBuilders) {
-      attempts.push((async () => {
-        const res = await fetch(buildProxyUrl(target), {
-          signal: AbortSignal.timeout(4500)
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  let lastErr;
 
+  for (const buildRelayUrl of relayBuilders) {
+    for (const target of targets) {
+      try {
+        const res = await fetch(buildRelayUrl(target), { signal: AbortSignal.timeout(6000) });
+        if (!res.ok) throw new Error(`Relay HTTP ${res.status}`);
         const json = await res.json();
-        const result = json?.chart?.result?.[0];
-        if (!result) throw new Error(`Empty chart result for ${symbol}`);
-
-        const meta = result.meta || {};
-        const closes = result.indicators?.quote?.[0]?.close || [];
-        const lastClose = [...closes]
-          .reverse()
-          .find((v) => typeof v === "number" && Number.isFinite(v));
-
-        const price =
-          (typeof meta.regularMarketPrice === "number" && Number.isFinite(meta.regularMarketPrice)
-            ? meta.regularMarketPrice
-            : null) ??
-          lastClose ??
-          meta.chartPreviousClose ??
-          meta.previousClose;
-
-        if (typeof price === "number" && Number.isFinite(price)) {
-          return price;
-        }
-        throw new Error(`No numeric price found for ${symbol}`);
-      })());
+        return extractYahooPrice(json, symbol);
+      } catch (err) {
+        lastErr = err;
+      }
     }
   }
 
-  return Promise.any(attempts);
+  throw lastErr || new Error(`All feeds failed for ${symbol}`);
 }
 
 // Convert short CME code like "ZQZ6" -> "ZQZ26.CBT" if user enters short code
@@ -219,7 +228,7 @@ function normalizeZQSymbol(raw) {
 
 async function syncAllFeeds() {
   refreshBtn.disabled = true;
-  statusEl.textContent = "Fetching NY Fed EFFR & market quotes...";
+  statusEl.textContent = "Syncing NY Fed EFFR & market quotes...";
 
   const zqYahooTicker = normalizeZQSymbol(zqSymbolInput.value);
 
@@ -237,34 +246,34 @@ async function syncAllFeeds() {
     effrDateEl.textContent = `EFFR date: ${effrRes.value.date}`;
     notes.push("EFFR ok");
   } else {
-    notes.push("EFFR failed (using manual)");
+    notes.push("EFFR manual");
   }
 
   if (zqRes.status === "fulfilled") {
     zqPriceInput.value = zqRes.value.toFixed(3);
     notes.push(`${zqYahooTicker} ok`);
   } else {
-    notes.push(`${zqYahooTicker} failed (using manual)`);
+    notes.push(`${zqYahooTicker} manual`);
   }
 
   if (tnxRes.status === "fulfilled") {
     us10ySpotInput.value = tnxRes.value.toFixed(3);
     notes.push("^TNX ok");
   } else {
-    notes.push("^TNX failed (using manual)");
+    notes.push("^TNX manual");
   }
 
   if (futRes.status === "fulfilled") {
     us10yFuturesInput.value = futRes.value.toFixed(3);
     notes.push("10Y=F ok");
   } else {
-    notes.push("10Y=F failed (using manual)");
+    notes.push("10Y=F manual");
   }
 
   calculateFedWatch();
   calculateUS10Y();
 
-  statusEl.textContent = `Last sync: ${new Date().toLocaleTimeString()} — ${notes.join(" | ")}`;
+  statusEl.textContent = `Last sync: ${new Date().toLocaleTimeString()} (hourly) — ${notes.join(" | ")}`;
   refreshBtn.disabled = false;
 }
 
@@ -279,7 +288,13 @@ async function syncAllFeeds() {
 
 refreshBtn.addEventListener("click", syncAllFeeds);
 
-// Run initial calculation on default values immediately, then attempt live sync
+// Run initial calculation on default values immediately, then sync now and every hour
 calculateFedWatch();
 calculateUS10Y();
 syncAllFeeds();
+
+setInterval(() => {
+  if (document.visibilityState === "visible") {
+    syncAllFeeds();
+  }
+}, ONE_HOUR_MS);
